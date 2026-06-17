@@ -6,7 +6,7 @@ interface PasswordGateProps {
 }
 
 // SHA-256 hash of the correct password
-const PASSWORD_HASH = '0ea7d58b80f21bfa036ac6a160bbdbeb55255a649e0f138e57c36416a21983305';
+const PASSWORD_HASH = 'ea7d58b80f21bfa036ac6a160bbdbeb55255a649e0f138e57c36416a21983305';
 
 async function sha256(message: string): Promise<string> {
   const msgBuffer = new TextEncoder().encode(message);
