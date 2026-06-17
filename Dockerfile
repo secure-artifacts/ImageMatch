@@ -14,6 +14,9 @@ RUN npm run build
 # ============================================================
 FROM python:3.12-slim
 
+# Create non-root user (required by HF Spaces)
+RUN useradd -m -u 1000 appuser
+
 WORKDIR /app
 
 # Install system dependencies
@@ -39,18 +42,27 @@ COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
 # Pre-download ResNet50 weights during build (cached in image)
 RUN python -c "import torchvision; torchvision.models.resnet50(weights=torchvision.models.ResNet50_Weights.IMAGENET1K_V2)"
 
-# Create data directories
-RUN mkdir -p /app/backend/data /app/backend/uploads/library
+# Create data directories with correct permissions
+RUN mkdir -p /data/vectors /data/uploads/library && \
+    chown -R appuser:appuser /app /data
+
+# Switch to non-root user
+USER appuser
+
+# Set environment variables
+ENV DATA_DIR=/data/vectors
+ENV UPLOAD_DIR=/data/uploads/library
+ENV PORT=7860
 
 # Expose port
-EXPOSE 8000
+EXPOSE 7860
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:7860/api/stats')" || exit 1
 
 # Set working directory to backend
 WORKDIR /app/backend
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/stats')" || exit 1
-
 # Start the server
-CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]
