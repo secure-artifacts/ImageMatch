@@ -14,9 +14,13 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 
 router = APIRouter(prefix="/api/library", tags=["Library"])
 
-# 图片存储目录
-UPLOAD_DIR = Path("./uploads/library")
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+def _get_upload_dir() -> Path:
+    """获取上传目录路径（支持环境变量配置）。"""
+    from main import UPLOAD_DIR
+    upload_dir = Path(UPLOAD_DIR)
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    return upload_dir
 
 # 允许的图片格式
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png"}
@@ -74,7 +78,7 @@ async def upload_to_library(files: List[UploadFile] = File(...)):
             # 生成唯一文件名
             image_id = str(uuid.uuid4())
             safe_filename = f"{image_id}{ext}"
-            file_path = UPLOAD_DIR / safe_filename
+            file_path = _get_upload_dir() / safe_filename
 
             # 保存图片文件
             with open(file_path, "wb") as f:

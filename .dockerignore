@@ -1,0 +1,36 @@
+# Git
+.git
+.gitignore
+
+# Virtual environments
+backend/venv/
+backend/.venv/
+
+# Node modules (will be installed fresh in Docker)
+frontend/node_modules/
+
+# Frontend build output (will be rebuilt in Docker)
+frontend/dist/
+
+# Python cache
+**/__pycache__/
+**/*.pyc
+
+# Runtime data (will use volumes)
+backend/data/
+backend/uploads/
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local launcher
+*.bat
+
+# Documentation artifacts
+*.md
+!README.md

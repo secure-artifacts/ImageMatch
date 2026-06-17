@@ -5,6 +5,7 @@ Image Similarity Matcher 后端服务。
 启动时加载 ResNet50 模型和已有特征向量索引。
 """
 
+import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -16,6 +17,10 @@ from fastapi.responses import FileResponse
 
 from embedding import ImageEmbedder
 from vector_store import VectorStore
+
+# 存储路径（支持通过环境变量配置，用于云端部署）
+DATA_DIR = os.environ.get("DATA_DIR", "./data")
+UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "./uploads/library")
 
 # 全局实例（在 lifespan 中初始化）
 embedder: ImageEmbedder = None  # type: ignore
@@ -38,11 +43,11 @@ async def lifespan(app: FastAPI):
 
     # 2. 加载向量存储
     print("\n[+] Loading vector store...")
-    vector_store = VectorStore(storage_dir="./data")
+    vector_store = VectorStore(storage_dir=DATA_DIR)
     print(f"[OK] Vector store loaded. {vector_store.get_count()} images in library.")
 
     # 3. 确保上传目录存在
-    upload_dir = Path("./uploads/library")
+    upload_dir = Path(UPLOAD_DIR)
     upload_dir.mkdir(parents=True, exist_ok=True)
     print(f"\n[+] Upload directory: {upload_dir.resolve()}")
 
@@ -76,9 +81,9 @@ app.add_middleware(
 )
 
 # 静态文件服务（提供上传的图片访问）
-upload_dir = Path("./uploads/library")
-upload_dir.mkdir(parents=True, exist_ok=True)
-app.mount("/uploads/library", StaticFiles(directory=str(upload_dir)), name="library_images")
+_upload_path = Path(UPLOAD_DIR)
+_upload_path.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads/library", StaticFiles(directory=str(_upload_path)), name="library_images")
 
 # 注册路由
 from routes.library import router as library_router
@@ -135,5 +140,7 @@ else:
 
 
 if __name__ == "__main__":
+    import os
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)

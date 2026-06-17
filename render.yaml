@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: imagematch
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: DATA_DIR
+        value: /data/vectors
+      - key: UPLOAD_DIR
+        value: /data/uploads/library
+    disk:
+      name: imagematch-storage
+      mountPath: /data
+      sizeGB: 1
+    healthCheckPath: /api/stats
