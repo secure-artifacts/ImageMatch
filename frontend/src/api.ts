@@ -1,6 +1,7 @@
 import axios from 'axios';
 
-const API_BASE = 'http://localhost:8000';
+// 生产模式下前后端在同一端口，使用相对路径；开发模式下连接后端 8000 端口
+const API_BASE = import.meta.env.DEV ? 'http://localhost:8000' : '';
 
 const api = axios.create({
   baseURL: API_BASE,

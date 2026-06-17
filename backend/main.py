@@ -9,9 +9,10 @@ import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from embedding import ImageEmbedder
 from vector_store import VectorStore
@@ -46,7 +47,9 @@ async def lifespan(app: FastAPI):
     print(f"\n[+] Upload directory: {upload_dir.resolve()}")
 
     print("\n" + "=" * 60)
-    print("[OK] Server ready! Visit http://localhost:8000/docs for API docs.")
+    print("[OK] Server ready!")
+    print("[OK] Web UI:  http://localhost:8000")
+    print("[OK] API docs: http://localhost:8000/docs")
     print("=" * 60 + "\n")
 
     yield  # 应用运行中
@@ -85,16 +88,6 @@ app.include_router(library_router)
 app.include_router(search_router)
 
 
-@app.get("/")
-async def root():
-    """健康检查端点。"""
-    return {
-        "service": "Image Similarity Matcher",
-        "status": "running",
-        "library_size": vector_store.get_count() if vector_store else 0,
-    }
-
-
 @app.get("/api/stats")
 async def get_stats():
     """获取系统统计信息。"""
@@ -103,6 +96,42 @@ async def get_stats():
         "feature_dimension": embedder.feature_dim if embedder else 0,
         "model": "ResNet50 (ImageNet V2)",
     }
+
+
+# 前端静态文件服务（生产模式）
+# 当 frontend/dist 目录存在时，直接从后端提供前端页面
+frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
+if frontend_dist.exists():
+    # 挂载静态资源（CSS/JS/图标等）
+    app.mount("/assets", StaticFiles(directory=str(frontend_dist / "assets")), name="frontend_assets")
+
+    @app.get("/")
+    async def serve_frontend_root():
+        """提供前端入口页面。"""
+        return FileResponse(str(frontend_dist / "index.html"))
+
+    @app.get("/{path:path}")
+    async def serve_frontend_fallback(request: Request, path: str):
+        """SPA fallback — 所有非 API/uploads 路径都返回 index.html。"""
+        # 如果是 API 或 uploads 路径，不处理（由前面的路由处理）
+        if path.startswith("api/") or path.startswith("uploads/") or path.startswith("docs") or path.startswith("openapi"):
+            return {"detail": "Not Found"}
+        # 尝试返回静态文件（如 favicon.svg）
+        static_file = frontend_dist / path
+        if static_file.exists() and static_file.is_file():
+            return FileResponse(str(static_file))
+        # 否则返回 index.html（SPA 路由）
+        return FileResponse(str(frontend_dist / "index.html"))
+else:
+    @app.get("/")
+    async def root():
+        """健康检查端点（开发模式，前端未构建时显示）。"""
+        return {
+            "service": "Image Similarity Matcher",
+            "status": "running",
+            "library_size": vector_store.get_count() if vector_store else 0,
+            "hint": "Frontend not built. Run 'npm run build' in frontend/ directory, or visit http://localhost:5173 if dev server is running.",
+        }
 
 
 if __name__ == "__main__":
