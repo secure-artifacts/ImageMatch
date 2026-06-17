@@ -5,8 +5,8 @@ interface PasswordGateProps {
   children: React.ReactNode;
 }
 
-// SHA-256 hash of the password - not stored in plaintext
-const PASSWORD_HASH = '5a4b3c9e8f1d2e7a6b0c4d8e9f3a1b5c7d2e6f0a4b8c1d5e9f3a7b0c4d8e2f';
+// SHA-256 hash of the correct password
+const PASSWORD_HASH = '0ea7d58b80f21bfa036ac6a160bbdbeb55255a649e0f138e57c36416a21983305';
 
 async function sha256(message: string): Promise<string> {
   const msgBuffer = new TextEncoder().encode(message);
@@ -40,8 +40,7 @@ export default function PasswordGate({ children }: PasswordGateProps) {
     }
 
     const hash = await sha256(password);
-    // Compare with known hash, or just compare directly for simplicity
-    if (password === 'jwsyle@1991') {
+    if (hash === PASSWORD_HASH) {
       sessionStorage.setItem('imagematch_auth', 'true');
       setIsAuthenticated(true);
     } else {
