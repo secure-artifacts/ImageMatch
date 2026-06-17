@@ -5,7 +5,7 @@ const API_BASE = import.meta.env.DEV ? 'http://localhost:8000' : '';
 
 const api = axios.create({
   baseURL: API_BASE,
-  timeout: 60000, // 60s timeout for large uploads / model inference
+  timeout: 600000, // 10分钟超时，支持批量大图片上传
 });
 
 // === Types ===
