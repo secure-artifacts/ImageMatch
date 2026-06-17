@@ -5,15 +5,8 @@ interface PasswordGateProps {
   children: React.ReactNode;
 }
 
-// SHA-256 hash of the correct password
-const PASSWORD_HASH = 'ea7d58b80f21bfa036ac6a160bbdbeb55255a649e0f138e57c36416a21983305';
-
-async function sha256(message: string): Promise<string> {
-  const msgBuffer = new TextEncoder().encode(message);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-}
+// 访问密码
+const ACCESS_PASSWORD = 'jwsyle@1991';
 
 export default function PasswordGate({ children }: PasswordGateProps) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -30,7 +23,7 @@ export default function PasswordGate({ children }: PasswordGateProps) {
     setIsChecking(false);
   }, []);
 
-  const handleSubmit = useCallback(async (e: React.FormEvent) => {
+  const handleSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -39,8 +32,7 @@ export default function PasswordGate({ children }: PasswordGateProps) {
       return;
     }
 
-    const hash = await sha256(password);
-    if (hash === PASSWORD_HASH) {
+    if (password === ACCESS_PASSWORD) {
       sessionStorage.setItem('imagematch_auth', 'true');
       setIsAuthenticated(true);
     } else {
