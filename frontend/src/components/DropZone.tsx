@@ -40,12 +40,11 @@ async function readFolderEntry(entry: FileSystemDirectoryEntry): Promise<File[]>
               });
             });
           } else if (e.isDirectory) {
-            // 递归处理子文件夹
             const subFiles = await readFolderEntry(e as FileSystemDirectoryEntry);
             allFiles.push(...subFiles);
           }
         }
-        readBatch(); // 继续读取（readEntries 每次最多返回100条）
+        readBatch();
       });
     };
     readBatch();
@@ -71,7 +70,6 @@ export default function DropZone({
     e.stopPropagation();
     if (!disabled) {
       setIsDragging(true);
-      // 检测是否拖拽的是文件夹
       const items = Array.from(e.dataTransfer.items);
       const hasFolder = items.some((item) => {
         const entry = item.webkitGetAsEntry?.();
@@ -98,23 +96,18 @@ export default function DropZone({
     e.stopPropagation();
     setIsDragging(false);
     setIsDraggingFolder(false);
-
     if (disabled) return;
 
-    const items = Array.from(e.dataTransfer.items);
-    const folders: FolderEntry[] = [];
+    // ⚠️ 关键：必须在任何 await 之前同步收集所有 entry
+    // 因为 await 之后 dataTransfer.items 会被浏览器清空
+    const folderEntries: FileSystemDirectoryEntry[] = [];
     const looseFiles: File[] = [];
 
-    for (const item of items) {
+    for (const item of Array.from(e.dataTransfer.items)) {
       const entry = item.webkitGetAsEntry?.();
       if (entry?.isDirectory && onFoldersSelected) {
-        // 是文件夹
-        const files = await readFolderEntry(entry as FileSystemDirectoryEntry);
-        if (files.length > 0) {
-          folders.push({ name: entry.name, files });
-        }
+        folderEntries.push(entry as FileSystemDirectoryEntry);
       } else if (entry?.isFile) {
-        // 是单个文件
         const file = item.getAsFile();
         if (file && (file.type === 'image/jpeg' || file.type === 'image/png')) {
           looseFiles.push(file);
@@ -122,9 +115,18 @@ export default function DropZone({
       }
     }
 
-    if (folders.length > 0 && onFoldersSelected) {
-      onFoldersSelected(folders);
+    // 现在可以安全地 await
+    if (folderEntries.length > 0 && onFoldersSelected) {
+      const folders: FolderEntry[] = [];
+      for (const entry of folderEntries) {
+        const files = await readFolderEntry(entry);
+        if (files.length > 0) {
+          folders.push({ name: entry.name, files });
+        }
+      }
+      if (folders.length > 0) onFoldersSelected(folders);
     }
+
     if (looseFiles.length > 0) {
       onFilesSelected(multiple ? looseFiles : [looseFiles[0]]);
     }
@@ -134,35 +136,44 @@ export default function DropZone({
     if (!disabled) fileInputRef.current?.click();
   };
 
+  // 文件夹选择：每次选一个文件夹，可多次点击叠加到队列
   const handleFolderClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!disabled) folderInputRef.current?.click();
+    if (!disabled && folderInputRef.current) {
+      // 重置 value 使得每次都能触发 onChange（即使选同一个文件夹）
+      folderInputRef.current.value = '';
+      folderInputRef.current.click();
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFiles = Array.from(e.target.files || []);
-    if (selectedFiles.length > 0) {
-      onFilesSelected(selectedFiles);
-    }
+    const selectedFiles = Array.from(e.target.files || []).filter(
+      f => f.type === 'image/jpeg' || f.type === 'image/png'
+    );
+    if (selectedFiles.length > 0) onFilesSelected(selectedFiles);
     e.target.value = '';
   };
 
   const handleFolderChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!onFoldersSelected) return;
-    const allFiles = Array.from(e.target.files || []);
+    const allFiles = Array.from(e.target.files || []).filter(
+      f => f.type === 'image/jpeg' || f.type === 'image/png'
+    );
     if (allFiles.length === 0) return;
 
-    // 按文件夹分组（webkitRelativePath = "folderName/filename.jpg"）
+    // webkitRelativePath = "folderName/sub/filename.jpg"
+    // 取第一级目录名作为文件夹名
     const folderMap = new Map<string, File[]>();
     for (const file of allFiles) {
-      if (file.type !== 'image/jpeg' && file.type !== 'image/png') continue;
-      const parts = file.webkitRelativePath.split('/');
-      const folderName = parts[0];
+      const parts = (file.webkitRelativePath || file.name).split('/');
+      const folderName = parts.length > 1 ? parts[0] : '选择的文件夹';
       if (!folderMap.has(folderName)) folderMap.set(folderName, []);
       folderMap.get(folderName)!.push(file);
     }
 
-    const folders: FolderEntry[] = Array.from(folderMap.entries()).map(([name, files]) => ({ name, files }));
+    const folders: FolderEntry[] = Array.from(folderMap.entries()).map(
+      ([name, files]) => ({ name, files })
+    );
     if (folders.length > 0) onFoldersSelected(folders);
     e.target.value = '';
   };
@@ -181,18 +192,11 @@ export default function DropZone({
         onDragLeave={handleDragLeave}
         onDragOver={handleDragOver}
         onDrop={handleDrop}
-        className={`
-          cursor-pointer rounded-xl border-2 border-dashed transition-all duration-300
-          flex items-center justify-center gap-3 p-4
-          ${draggingClass}
-          ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
-        `}
+        className={`cursor-pointer rounded-xl border-2 border-dashed transition-all duration-300 flex items-center justify-center gap-3 p-4 ${draggingClass} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
       >
         <input ref={fileInputRef} type="file" accept="image/jpeg,image/png" multiple={multiple} onChange={handleFileChange} className="hidden" />
         <ImagePlus className={`w-5 h-5 ${isDragging ? 'text-accent-500' : 'text-surface-500'}`} />
-        <span className={`text-sm font-medium ${isDragging ? 'text-accent-400' : 'text-surface-400'}`}>
-          {label}
-        </span>
+        <span className={`text-sm font-medium ${isDragging ? 'text-accent-400' : 'text-surface-400'}`}>{label}</span>
       </div>
     );
   }
@@ -203,49 +207,43 @@ export default function DropZone({
       onDragLeave={handleDragLeave}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
-      className={`
-        rounded-2xl border-2 border-dashed transition-all duration-300
-        flex flex-col items-center justify-center text-center p-10
-        ${draggingClass}
-        ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
-      `}
+      className={`rounded-2xl border-2 border-dashed transition-all duration-300 flex flex-col items-center justify-center text-center p-10 ${draggingClass} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
     >
       <input ref={fileInputRef} type="file" accept="image/jpeg,image/png" multiple={multiple} onChange={handleFileChange} className="hidden" />
-      {/* 文件夹选择器：支持多个文件夹 */}
-      <input ref={folderInputRef} type="file" onChange={handleFolderChange} className="hidden"
-        {...{ webkitdirectory: '', mozdirectory: '', directory: '' } as any} />
+      {/* 文件夹选择器（每次只选一个，可多次叠加） */}
+      <input
+        ref={folderInputRef}
+        type="file"
+        onChange={handleFolderChange}
+        className="hidden"
+        {...{ webkitdirectory: '', directory: '' } as any}
+      />
 
-      <div className={`
-        w-16 h-16 rounded-2xl flex items-center justify-center mb-4 transition-all duration-300
-        ${isDragging
+      <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mb-4 transition-all duration-300 ${
+        isDragging
           ? isDraggingFolder
             ? 'bg-purple-500/20 shadow-lg shadow-purple-500/20'
             : 'bg-accent-500/20 shadow-lg shadow-accent-500/20'
           : 'bg-surface-800'
-        }
-      `}>
-        {isDragging ? (
-          isDraggingFolder
+      }`}>
+        {isDragging
+          ? isDraggingFolder
             ? <FolderOpen className="w-7 h-7 text-purple-400 animate-bounce" />
             : <Upload className="w-7 h-7 text-accent-400 animate-bounce" />
-        ) : (
-          <FileImage className="w-7 h-7 text-surface-400" />
-        )}
+          : <FileImage className="w-7 h-7 text-surface-400" />
+        }
       </div>
 
-      <p className={`text-base font-semibold mb-1 transition-colors duration-300
-        ${isDragging ? (isDraggingFolder ? 'text-purple-400' : 'text-accent-400') : 'text-surface-200'}
-      `}>
+      <p className={`text-base font-semibold mb-1 transition-colors duration-300 ${
+        isDragging ? (isDraggingFolder ? 'text-purple-400' : 'text-accent-400') : 'text-surface-200'
+      }`}>
         {isDragging && isDraggingFolder ? '松开以上传文件夹' : label}
       </p>
-      <p className={`text-sm transition-colors duration-300
-        ${isDragging ? 'text-accent-500/70' : 'text-surface-500'}
-      `}>
+      <p className={`text-sm transition-colors duration-300 ${isDragging ? 'text-accent-500/70' : 'text-surface-500'}`}>
         {sublabel}
       </p>
       <p className="text-xs text-surface-600 mt-2">支持 JPEG、PNG 格式</p>
 
-      {/* 操作按钮 */}
       {!disabled && (
         <div className="flex gap-3 mt-5">
           <button
@@ -259,9 +257,10 @@ export default function DropZone({
             <button
               onClick={handleFolderClick}
               className="flex items-center gap-2 px-4 py-2 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 hover:text-purple-300 text-sm transition-all border border-purple-500/20 hover:border-purple-500/40"
+              title="可多次点击，每次添加一个文件夹到队列"
             >
               <FolderOpen className="w-4 h-4" />
-              选择文件夹
+              添加文件夹到队列
             </button>
           )}
         </div>

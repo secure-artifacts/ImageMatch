@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { ImageIcon, Trash2, Upload, RefreshCw, AlertCircle, FolderOpen, CheckCircle, Clock, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
+import { ImageIcon, Trash2, Upload, RefreshCw, AlertCircle, FolderOpen, CheckCircle, Clock, Loader2, ChevronDown, ChevronUp, RotateCcw } from 'lucide-react';
 import DropZone, { type FolderEntry } from '../components/DropZone';
 import { listLibrary, uploadToLibrary, deleteLibraryImage, getImageUrl, type LibraryImage } from '../api';
 
@@ -13,11 +13,12 @@ const BATCH_SIZE = 8;  // 每批上传数量
 interface FolderQueueItem {
   id: string;
   name: string;
-  files: File[];
+  files: File[];        // 所有文件（含失败）
+  failedFiles: File[]; // 上次失败的文件
   total: number;
   uploaded: number;
   failed: number;
-  status: 'waiting' | 'uploading' | 'done' | 'error';
+  status: 'waiting' | 'uploading' | 'done' | 'error' | 'retrying';
   progress: number;
   expanded: boolean;
 }
@@ -123,6 +124,7 @@ export default function LibraryView({ onLibraryChange }: LibraryViewProps) {
       id: `${Date.now()}-${i}-${f.name}`,
       name: f.name,
       files: f.files,
+      failedFiles: [],
       total: f.files.length,
       uploaded: 0,
       failed: 0,
@@ -133,41 +135,61 @@ export default function LibraryView({ onLibraryChange }: LibraryViewProps) {
     setFolderQueue((prev) => [...prev, ...newItems]);
   }, []);
 
-  const processQueue = useCallback(async (queue: FolderQueueItem[]) => {
+  /** 处理队列（串行），filesToProcess 为 null 时处理 item.files，否则处理指定文件（重试用） */
+  const processQueueItems = useCallback(async (
+    queue: FolderQueueItem[],
+    targetStatuses: FolderQueueItem['status'][]
+  ) => {
     if (isProcessingQueue) return;
     setIsProcessingQueue(true);
 
     for (const item of queue) {
-      if (item.status !== 'waiting') continue;
+      if (!targetStatuses.includes(item.status)) continue;
+
+      const isRetry = item.status === 'retrying';
+      const filesToProcess = isRetry ? item.failedFiles : item.files;
 
       setFolderQueue((prev) =>
-        prev.map((q) => q.id === item.id ? { ...q, status: 'uploading' } : q)
+        prev.map((q) => q.id === item.id
+          ? { ...q, status: 'uploading', uploaded: isRetry ? q.uploaded : 0, failed: 0, failedFiles: [], progress: 0 }
+          : q
+        )
       );
 
-      let uploaded = 0;
+      let uploaded = isRetry ? item.uploaded : 0;
       let failed = 0;
-      const files = item.files;
+      const failedFiles: File[] = [];
 
-      for (let i = 0; i < files.length; i += BATCH_SIZE) {
-        const batch = files.slice(i, i + BATCH_SIZE);
+      for (let i = 0; i < filesToProcess.length; i += BATCH_SIZE) {
+        const batch = filesToProcess.slice(i, i + BATCH_SIZE);
         try {
           const resp = await uploadToLibrary(batch, () => {});
           uploaded += resp.uploaded;
           failed += resp.failed;
+          // 收集失败的具体文件
+          if (resp.errors && resp.errors.length > 0) {
+            const failedNames = new Set(resp.errors.map((e: any) => e.filename));
+            failedFiles.push(...batch.filter(f => failedNames.has(f.name)));
+          }
         } catch {
           failed += batch.length;
+          failedFiles.push(...batch);
         }
 
-        const progress = Math.round(((i + batch.length) / files.length) * 100);
+        const totalFiles = isRetry ? item.failedFiles.length : item.files.length;
+        const progress = Math.round(((i + batch.length) / totalFiles) * 100);
         setFolderQueue((prev) =>
-          prev.map((q) => q.id === item.id ? { ...q, uploaded, failed, progress: Math.min(progress, 100) } : q)
+          prev.map((q) => q.id === item.id
+            ? { ...q, uploaded, failed, failedFiles, progress: Math.min(progress, 100) }
+            : q
+          )
         );
       }
 
       setFolderQueue((prev) =>
         prev.map((q) =>
           q.id === item.id
-            ? { ...q, status: failed === files.length ? 'error' : 'done', progress: 100 }
+            ? { ...q, status: failed > 0 ? 'done' : 'done', failedFiles, progress: 100 }
             : q
         )
       );
@@ -179,12 +201,26 @@ export default function LibraryView({ onLibraryChange }: LibraryViewProps) {
     setIsProcessingQueue(false);
   }, [isProcessingQueue, fetchFirstPage, onLibraryChange]);
 
+  const processQueue = processQueueItems;
+
+  /** 重试某个文件夹中失败的文件 */
+  const retryFailed = useCallback((id: string) => {
+    setFolderQueue((prev) =>
+      prev.map((q) => q.id === id && q.failedFiles.length > 0
+        ? { ...q, status: 'retrying' }
+        : q
+      )
+    );
+  }, []);
+
   useEffect(() => {
-    const waitingItems = folderQueue.filter((q) => q.status === 'waiting');
-    if (waitingItems.length > 0 && !isProcessingQueue) {
-      processQueue(folderQueue);
+    const actionable = folderQueue.filter(
+      (q) => q.status === 'waiting' || q.status === 'retrying'
+    );
+    if (actionable.length > 0 && !isProcessingQueue) {
+      processQueueItems(folderQueue, ['waiting', 'retrying']);
     }
-  }, [folderQueue, isProcessingQueue, processQueue]);
+  }, [folderQueue, isProcessingQueue, processQueueItems]);
 
   const toggleExpand = (id: string) =>
     setFolderQueue((prev) => prev.map((q) => q.id === id ? { ...q, expanded: !q.expanded } : q));
@@ -297,12 +333,33 @@ export default function LibraryView({ onLibraryChange }: LibraryViewProps) {
                     item.status === 'done' ? 'text-green-400' :
                     item.status === 'error' ? 'text-red-400' : 'text-surface-500'}`} />
                   <span className="text-sm font-medium text-surface-200 flex-1 truncate">{item.name}</span>
-                  <span className="text-xs text-surface-500 shrink-0">
-                    {item.status === 'waiting' && `${item.total} 张待上传`}
-                    {item.status === 'uploading' && `${item.uploaded}/${item.total} 张`}
-                    {item.status === 'done' && <span className="text-green-400">{item.uploaded} 张完成{item.failed > 0 ? `，${item.failed} 张失败` : ''}</span>}
-                    {item.status === 'error' && <span className="text-red-400">上传失败</span>}
-                  </span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs text-surface-500">
+                      {item.status === 'waiting' && `${item.total} 张待上传`}
+                      {item.status === 'uploading' && `${item.uploaded}/${item.total} 张`}
+                      {item.status === 'retrying' && `重试中...`}
+                      {(item.status === 'done' || item.status === 'error') && (
+                        <span>
+                          <span className="text-green-400">{item.uploaded} 张完成</span>
+                          {item.failedFiles.length > 0 && (
+                            <span className="text-red-400 ml-1">，{item.failedFiles.length} 张失败</span>
+                          )}
+                        </span>
+                      )}
+                    </span>
+                    {/* 重试按钮 */}
+                    {(item.status === 'done' || item.status === 'error') && item.failedFiles.length > 0 && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); retryFailed(item.id); }}
+                        disabled={isProcessingQueue}
+                        className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-orange-500/15 hover:bg-orange-500/30 text-orange-400 hover:text-orange-300 text-xs transition-all border border-orange-500/20 disabled:opacity-40"
+                        title={`重新上传 ${item.failedFiles.length} 张失败的图片`}
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        重试 {item.failedFiles.length} 张
+                      </button>
+                    )}
+                  </div>
                   {item.expanded ? <ChevronUp className="w-3.5 h-3.5 text-surface-600 shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 text-surface-600 shrink-0" />}
                 </div>
                 {item.expanded && (
