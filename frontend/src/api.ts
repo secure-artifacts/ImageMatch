@@ -67,9 +67,15 @@ export async function uploadToLibrary(
   return response.data;
 }
 
-/** List all library images */
-export async function listLibrary(): Promise<{ total: number; images: LibraryImage[] }> {
-  const response = await api.get('/api/library');
+/** List library images with pagination */
+export async function listLibrary(page = 1, limit = 20): Promise<{
+  total: number;
+  page: number;
+  limit: number;
+  has_more: boolean;
+  images: LibraryImage[];
+}> {
+  const response = await api.get(`/api/library?page=${page}&limit=${limit}`);
   return response.data;
 }
 

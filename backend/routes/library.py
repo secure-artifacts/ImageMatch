@@ -116,22 +116,33 @@ async def upload_to_library(files: List[UploadFile] = File(...)):
 
 
 @router.get("")
-async def list_library():
+async def list_library(page: int = 1, limit: int = 20):
     """
-    列出图库中所有图片。
+    列出图库中的图片（支持分页）。
 
+    - page: 页码，从 1 开始
+    - limit: 每页图片数量，默认 20，最大 100
     返回每张图片的 ID、文件名、缩略图 URL 和创建时间。
     """
     store = get_store()
-    images = store.get_all()
+    all_images = store.get_all()
+
+    total = len(all_images)
+    limit = min(limit, 100)
+    start = (page - 1) * limit
+    end = start + limit
+    page_images = all_images[start:end]
 
     # 为每张图片添加访问 URL
-    for img in images:
+    for img in page_images:
         img["image_url"] = f"/uploads/library/{Path(img['file_path']).name}"
 
     return {
-        "total": len(images),
-        "images": images,
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "has_more": end < total,
+        "images": page_images,
     }
 
 
