@@ -201,8 +201,6 @@ export default function LibraryView({ onLibraryChange }: LibraryViewProps) {
     setIsProcessingQueue(false);
   }, [isProcessingQueue, fetchFirstPage, onLibraryChange]);
 
-  const processQueue = processQueueItems;
-
   /** 重试某个文件夹中失败的文件 */
   const retryFailed = useCallback((id: string) => {
     setFolderQueue((prev) =>
