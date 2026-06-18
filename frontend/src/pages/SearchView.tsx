@@ -33,7 +33,7 @@ export default function SearchView({ libraryCount }: SearchViewProps) {
     // Auto-search
     setIsSearching(true);
     try {
-      const response = await searchSimilar(file, 10);
+      const response = await searchSimilar(file, 30);
       setResults(response.results);
       setHasSearched(true);
     } catch (err: any) {
@@ -49,7 +49,7 @@ export default function SearchView({ libraryCount }: SearchViewProps) {
     setIsSearching(true);
     setError(null);
     try {
-      const response = await searchSimilar(targetFile, 10);
+      const response = await searchSimilar(targetFile, 30);
       setResults(response.results);
       setHasSearched(true);
     } catch (err: any) {
