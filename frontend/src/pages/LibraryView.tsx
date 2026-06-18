@@ -184,7 +184,6 @@ export default function LibraryView({ onLibraryChange }: LibraryViewProps) {
   }, [onLibraryChange]);
 
   const doneFolders = folderQueue.filter((q) => q.status === 'done' || q.status === 'error');
-  const activeFolders = folderQueue.filter((q) => q.status === 'waiting' || q.status === 'uploading');
 
   return (
     <div className="animate-fade-in">
